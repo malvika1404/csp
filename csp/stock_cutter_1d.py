@@ -11,12 +11,20 @@ import json
 from read_lengths import get_data
 import typer
 from typing import Optional
+import time
+from gurobipy import *
 
 def newSolver(name,integer=False):
   return pywraplp.Solver(name,\
                          pywraplp.Solver.CBC_MIXED_INTEGER_PROGRAMMING \
                          if integer else \
                          pywraplp.Solver.GLOP_LINEAR_PROGRAMMING)
+
+                        
+  # return pywraplp.Solver(name,\
+  #                        pywraplp.Solver.GUROBI_MIXED_INTEGER_PROGRAMMING \
+  #                        if integer else \
+  #                        pywraplp.Solver.GUROBI_LINEAR_PROGRAMMING)
 
 '''
 return a printable value
@@ -34,22 +42,33 @@ def ObjVal(x):
   return x.Objective().Value()
 
 
+# def gen_data(num_orders):
+#     print('numorders',num_orders)
+#     R=[] # small rolls
+#     # S=0 # seed?
+#     for i in range(num_orders):
+#       R.append([randint(20,100), randint(5,80)])
+#     return R
+
 def gen_data(num_orders):
+    print('numorders',num_orders)
     R=[] # small rolls
-    # S=0 # seed?
     for i in range(num_orders):
-        R.append([randint(1,12), randint(5,40)])
+      if i == 0:
+        R.append([10,20])
+      elif i == 1:
+        R.append([75,90])
+      else:
+        R.append([60,7])
     return R
 
-
-def solve_model(demands, parent_width=100):
+def solve_model(demands, parent_width=120):
   '''
       demands = [
           [1, 3], # [quantity, width]
           [3, 5],
           ...
       ]
-
       parent_width = integer
   '''
   num_orders = len(demands)
@@ -71,7 +90,7 @@ def solve_model(demands, parent_width=100):
   # will contain the number of big rolls used
   nb = solver.IntVar(k[0], k[1], 'nb')
 
-  # consntraint: demand fullfilment
+  # constraint: demand fullfilment
   for i in range(num_orders):  
     # small rolls from i-th order must be at least as many in quantity
     # as specified by the i-th order
@@ -86,8 +105,7 @@ def solve_model(demands, parent_width=100):
         <= parent_width*y[j] \
       ) 
 
-    # width of j-th big roll - total width of all orders cut from j-th roll
-    # must be equal to unused_widths[j]
+    # width of j-th big roll - total width of all orders cut from j-th roll    # must be equal to unused_widths[j]
     # So, we are saying that assign unused_widths[j] the remaining width of j'th big roll
     solver.Add(parent_width*y[j] - sum(demands[i][1]*x[i][j] for i in range(num_orders)) == unused_widths[j])
 
@@ -97,16 +115,10 @@ def solve_model(demands, parent_width=100):
     for our purposes: any permutation of the rolls. These permutations, and there are K! of 
     them, cause most solvers to spend an exorbitant time solving. With this constraint, we 
     tell the solver to prefer those permutations with more cuts in roll j than in roll j + 1. 
-    The reader is encouraged to solve a medium-sized problem with and without this 
-    symmetry-breaking constraint. I have seen problems take 48 hours to solve without the 
-    constraint and 48 minutes with. Of course, for problems that are solved in seconds, the 
-    constraint will not help; it may even hinder. But who cares if a cutting stock instance 
-    solves in two or in three seconds? We care much more about the difference between two 
-    minutes and three hours, which is what this constraint is meant to address
     '''
     if j < k[1]-1: # k1 = total big rolls
       # total small rolls of i-th order cut from j-th big roll must be >=
-      # totall small rolls of i-th order cut from j+1-th big roll
+      # total small rolls of i-th order cut from j+1-th big roll
       solver.Add(sum(x[i][j] for i in range(num_orders)) >= sum(x[i][j+1] for i in range(num_orders)))
 
   # find & assign to nb, the number of big rolls used
@@ -124,15 +136,7 @@ def solve_model(demands, parent_width=100):
     we Minimize( Sum([1*1, 1*2, 1*3]) )
   ''' 
 
-  '''
-  Book Author's note from page 201:
-
-  There are alternative objective functions. For example, we could have minimized the sum of the waste. This makes sense, especially if the demand constraint is formulated as an inequality. Then minimizing the sum of waste Chapter 7  advanCed teChniques
-  will spend more CPU cycles trying to find more efficient patterns that over-satisfy demand. This is especially good if the demand widths recur regularly and storing cut rolls in inventory to satisfy future demand is possible. Note that the running time will grow quickly with such an objective function
-  '''
-
   Cost = solver.Sum((j+1)*y[j] for j in range(k[1]))
-
   solver.Minimize(Cost)
 
   status = solver.Solve()
@@ -144,11 +148,11 @@ def solve_model(demands, parent_width=100):
     SolVal(unused_widths), \
     solver.WallTime()
 
-def bounds(demands, parent_width=100):
+def bounds(demands, parent_width=120):
   '''
   b = [sum of widths of individual small rolls of each order]
   T = local var. stores sum of widths of adjecent small-rolls. When the width reaches 100%, T is set to 0 again.
-  k = [k0, k1], k0 = minimum big-rolls requierd, k1: number of big rolls that can be consumed / cut from
+  k = [k0, k1], k0 = minimum big-rolls required, k1: number of big rolls that can be consumed / cut from
   TT = local var. stores sum of widths of of all small-rolls. At the end, will be used to estimate lower bound of big-rolls
   '''
   num_orders = len(demands)
@@ -164,7 +168,7 @@ def bounds(demands, parent_width=100):
     # assumes widths to be entered as percentage
     # int(round(parent_width/demands[i][1])) will always be >= 1, because widths of small rolls can't exceed parent_width (which is width of big roll)
     # b.append( min(demands[i][0], int(round(parent_width / demands[i][1]))) )
-    b.append( min(quantity, int(round(parent_width / width))) )
+    b.append( int(round(parent_width / width)))
 
     # if total width of this i-th order + previous order's leftover (T) is less than parent_width
     # it's fine. Cut it.
@@ -179,14 +183,13 @@ def bounds(demands, parent_width=100):
           k[1],T = k[1]+1, 0 # use next roll (k[1] += 1)
   k[0] = int(round(TT/parent_width+0.5))
 
-  print('k', k)
-  print('b', b)
+  print('k: minimum big-rolls required,number of big rolls that can be consumed', k)
+  print('b: sum of widths of individual small rolls (parent_width / width)', b)
 
   return k, b
 
 '''
   nb: array of number of rolls to cut, of each order
-  
   w: 
   demands: [
     [quantity, width],
@@ -206,10 +209,7 @@ def rolls(nb, x, w, demands):
     RR = [ abs(w[j])] + [ int(x[i][j])*[demands[i][1]] for i in range(num_orders) \
                     if x[i][j] > 0 ] # if i-th order has some cuts from j-th order, x[i][j] would be > 0
     consumed_big_rolls.append(RR)
-
   return consumed_big_rolls
-
-
 
 '''
 this model starts with some patterns and then optimizes those patterns
@@ -218,7 +218,6 @@ def solve_large_model(demands, parent_width=100):
   num_orders = len(demands)
   iter = 0
   patterns = get_initial_patterns(demands)
-  # print('method#solve_large_model, patterns', patterns)
 
   # list quantities of orders
   quantities = [demands[i][0] for i in range(num_orders)]
@@ -255,7 +254,7 @@ The Master Problem: provided a set of patterns, find the best combination satisf
 C: patterns
 b: demand
 '''
-def solve_master(patterns, quantities, parent_width=100, integer=False):
+def solve_master(patterns, quantities, parent_width=120, integer=False):
   title = 'Cutting stock master problem'
   num_patterns = len(patterns)
   n = len(patterns[0])
@@ -340,10 +339,13 @@ def rolls_patterns(patterns, y, demands, parent_width=100):
 checks if all small roll widths (demands) smaller than parent roll's width
 '''
 def checkWidths(demands, parent_width):
+  sum=0
   for quantity, width in demands:
-    if width > parent_width:
-      print(f'Small roll width {width} is greater than parent rolls width {parent_width}. Exiting')
+    sum=sum+width
+    if sum > parent_width:
+      print(f'Sum of Small rolls widths {sum} is greater than parent rolls width {parent_width}. Exiting')
       return False
+  print(f'Sum of Small rolls widths {sum} is lesser than parent rolls width {parent_width}. Check!')
   return True
 
 
@@ -362,11 +364,10 @@ def StockCutter1D(child_rolls, parent_rolls, output_json=True, large_model=True)
   # quantity of parent rolls is calculated by algorithm, so user supplied quantity doesn't matter?
   # TODO: or we can check and tell the user the user when parent roll quantity is insufficient
   parent_width = parent_rolls[0][1]
+  print(child_rolls)
 
   if not checkWidths(demands=child_rolls, parent_width=parent_width):
     return []
-
-
   print('child_rolls', child_rolls)
   print('parent_rolls', parent_rolls)
 
@@ -376,9 +377,10 @@ def StockCutter1D(child_rolls, parent_rolls, output_json=True, large_model=True)
               solve_model(demands=child_rolls, parent_width=parent_width)
 
     # convert the format of output of solve_model to be exactly same as solve_large_model
-    print('consumed_big_rolls before adjustment: ', consumed_big_rolls)
+    # print('consumed_big_rolls before adjustment: ', consumed_big_rolls)
     new_consumed_big_rolls = []
     for big_roll in consumed_big_rolls:
+      print(big_roll)
       if len(big_roll) < 2:
         # sometimes the solve_model return a solution that contanis an extra [0.0] entry for big roll
         consumed_big_rolls.remove(big_roll)
@@ -393,7 +395,7 @@ def StockCutter1D(child_rolls, parent_rolls, output_json=True, large_model=True)
           # if it's an integer, add it to the list
           subrolls.append(subitem)
       new_consumed_big_rolls.append([unused_width, subrolls])
-    print('consumed_big_rolls after adjustment: ', new_consumed_big_rolls)
+    # print('consumed_big_rolls: ', new_consumed_big_rolls)
     consumed_big_rolls = new_consumed_big_rolls
   
   else:
@@ -401,9 +403,6 @@ def StockCutter1D(child_rolls, parent_rolls, output_json=True, large_model=True)
     status, A, y, consumed_big_rolls = solve_large_model(demands=child_rolls, parent_width=parent_width)
 
   numRollsUsed = len(consumed_big_rolls)
-  # print('A:', A, '\n')
-  # print('y:', y, '\n')
-
 
   STATUS_NAME = ['OPTIMAL',
     'FEASIBLE',
@@ -422,7 +421,6 @@ def StockCutter1D(child_rolls, parent_rolls, output_json=True, large_model=True)
   }
 
 
-  # print('Wall Time:', wall_time)
   print('numRollsUsed', numRollsUsed)
   print('Status:', output['statusName'])
   print('Solutions found :', output['numSolutions'])
@@ -432,7 +430,6 @@ def StockCutter1D(child_rolls, parent_rolls, output_json=True, large_model=True)
     return json.dumps(output)        
   else:
     return consumed_big_rolls
-
 
 '''
 Draws the big rolls on the graph. Each horizontal colored line represents one big roll.
@@ -478,7 +475,7 @@ def drawGraph(consumed_big_rolls, child_rolls, parent_width):
       y2 = y1 + 8 # the height of each big roll will be 8 
       for j, small_roll in enumerate(small_rolls):
         x2 = x2 + small_roll
-        print(f"{x1}, {y1} -> {x2}, {y2}")
+        # print(f"{x1}, {y1} -> {x2}, {y2}")
         width = abs(x1-x2)
         height = abs(y1-y2)
         # print(f"Rect#{idx}: {width}x{height}")
@@ -508,21 +505,22 @@ if __name__ == '__main__':
 
 
   def main(infile_name: Optional[str] = typer.Argument(None)):
-
+    start = time.time()
+    print(start)
     if infile_name:
       child_rolls = get_data(infile_name)
     else:
       child_rolls = gen_data(3)
-    parent_rolls = [[10, 120]] # 10 doesn't matter, itls not used at the moment
-
+      parent_rolls = [[10, 120]] # 10 doesn't matter, its not used at the moment
     consumed_big_rolls = StockCutter1D(child_rolls, parent_rolls, output_json=False, large_model=False)
+    print(len(consumed_big_rolls))
+    typer.echo(f" [[Waste],[Consumed Big Rolls]]")
     typer.echo(f"{consumed_big_rolls}")
-
-
+    end = time.time()
+    print(end - start)
     for idx, roll in enumerate(consumed_big_rolls):
       typer.echo(f"Roll #{idx}:{roll}")
-
     drawGraph(consumed_big_rolls, child_rolls, parent_width=parent_rolls[0][1])
-
+    
 if __name__ == "__main__":
   typer.run(main)
