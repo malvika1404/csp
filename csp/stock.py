@@ -41,27 +41,24 @@ def solve_model(demands, parent_width=120):
     #create variables  
     for i in range(k[1]):
         print(i,k)
-        y=solver.addVar(0,1, name='y') 
+        y=solver.addVar(0,1,vtype=GRB.INTEGER, name='y') 
     for i in range(num_orders):
-        x= solver.addVar(0,b[i], name="x")   
-    nb = solver.addVar(k[0], k[1],vtype='I', name='nb')
+        x= solver.addVar(0,b[i], vtype=GRB.INTEGER,name="x")   
+    nb = solver.addVar(k[0], k[1],vtype=GRB.INTEGER, name='nb')
     for j in range(k[1]):
         unused_widths = solver.addVar(0, parent_width,  name='unusedwidth' )
     solver.update()
     print(x,y,nb, unused_widths)
 
     #objective: MINIMIZE COST
-    Cost=0
-    for j in range(k[1]):
-        Cost += (j+1)*y[j] 
-    print(Cost)
+    Cost = solver.Sum((j+1)*y[j] for j in range(k[1]))
     solver.setObjective(Cost,GRB.MINIMIZE)
 
     #constraints
     #CONSTRAINT 1: DEMAND FULFILLMENT
     for i in range(num_orders):  
-        print(i,num_orders)
-        solver.addConstrs(gp.quicksum(x[i][j] for j in range(k[1])) >= demands[i][0])
+        for j in range(k[1]):
+            solver.addConstrs(gp.add(x[i][j]) >= demands[i][0])
        
 # defining the bounds
 def bounds(demands, parent_width=120):
@@ -138,7 +135,6 @@ def StockCutter1D(child_rolls, parent_rolls,large_model=True):
                     # if it's an integer, add it to the list
                     subrolls.append(subitem)
             new_consumed_big_rolls.append([unused_width, subrolls])
-        # print('consumed_big_rolls: ', new_consumed_big_rolls)
         consumed_big_rolls = new_consumed_big_rolls
     numRollsUsed = len(consumed_big_rolls)
 
@@ -161,8 +157,6 @@ def StockCutter1D(child_rolls, parent_rolls,large_model=True):
     print('Status:', output['statusName'])
     print('Solutions found :', output['numSolutions'])
     print('Unique solutions: ', output['numUniqueSolutions'])
-   
-
 
 def main():
     start = time.time()
@@ -175,9 +169,6 @@ def main():
     typer.echo(f"{consumed_big_rolls}")
     end = time.time()
     print(end - start)
-
-
-
 
 if __name__ == "__main__":
   typer.run(main)
