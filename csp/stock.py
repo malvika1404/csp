@@ -38,27 +38,31 @@ def solve_model(demands, parent_width=120):
     num_orders = len(demands)
     solver = gp.Model()
     k,b  = bounds(demands, parent_width) 
+    y = [ i for i in range(k[1]) ] 
+    x = [ [i,j] for i in range(num_orders) for j in range(k[1]) ]
+    x1 = [x[i * 6:(i + 1) * 6] for i in range((len(x) + 6 - 1) // 6 )]
     #create variables  
-    for i in range(k[1]):
-        print(i,k)
-        y=solver.addVar(0,1,vtype=GRB.INTEGER, name='y') 
-    for i in range(num_orders):
-        x= solver.addVar(0,b[i], vtype=GRB.INTEGER,name="x")   
-    nb = solver.addVar(k[0], k[1],vtype=GRB.INTEGER, name='nb')
-    for j in range(k[1]):
-        unused_widths = solver.addVar(0, parent_width,  name='unusedwidth' )
+    # for i in range(k[1]):
+    #     y1=solver.addVar(y[i],obj=1,vtype=GRB.INTEGER, name='y') 
     solver.update()
-    print(x,y,nb, unused_widths)
+
+    # x1= solver.addVar(0,x, vtype=GRB.INTEGER,name="x")   
+    nb = solver.addVar(k[0], k[1],vtype=GRB.INTEGER, name='nb')
+    # for j in range(k[1]):
+    #     unused_widths = solver.addVar(0, parent_width,  name='unusedwidth' )
+    solver.update()
 
     #objective: MINIMIZE COST
+    # Cost = solver.addConstrs((gp.Sum((j+1)*y[j]) for j in range(k[1])))
     Cost = solver.Sum((j+1)*y[j] for j in range(k[1]))
     solver.setObjective(Cost,GRB.MINIMIZE)
+    
 
     #constraints
     #CONSTRAINT 1: DEMAND FULFILLMENT
     for i in range(num_orders):  
         for j in range(k[1]):
-            solver.addConstrs(gp.add(x[i][j]) >= demands[i][0])
+            solver.addConstrs(gp.Sum(x[i][j]) >= demands[i][0])
        
 # defining the bounds
 def bounds(demands, parent_width=120):
@@ -97,7 +101,6 @@ def bounds(demands, parent_width=120):
 def checkWidths(demands, parent_width):
   sum=0
   for quantity, width in demands:
-    print('sum',sum,'width', width)
     sum=sum+width
     if sum > parent_width:
       print(f'Sum of Small rolls widths {sum} is greater than parent rolls width {parent_width}. Exiting')
