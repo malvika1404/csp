@@ -38,32 +38,53 @@ def solve_model(demands, parent_width=120):
     num_orders = len(demands)
     solver = gp.Model()
     k,b  = bounds(demands, parent_width) 
+
+    #create variables  
     y = [ i for i in range(k[1]) ] 
     x = [ [i,j] for i in range(num_orders) for j in range(k[1]) ]
     x1 = [x[i * 6:(i + 1) * 6] for i in range((len(x) + 6 - 1) // 6 )]
-    #create variables  
+   
     # for i in range(k[1]):
     #     y1=solver.addVar(y[i],obj=1,vtype=GRB.INTEGER, name='y') 
-    solver.update()
-
     # x1= solver.addVar(0,x, vtype=GRB.INTEGER,name="x")   
+    solver.update()
     nb = solver.addVar(k[0], k[1],vtype=GRB.INTEGER, name='nb')
-    # for j in range(k[1]):
-    #     unused_widths = solver.addVar(0, parent_width,  name='unusedwidth' )
+    for j in range(k[1]):
+        unused_widths = solver.addVar(0, parent_width,  name='unusedwidth' )
     solver.update()
 
     #objective: MINIMIZE COST
-    # Cost = solver.addConstrs((gp.Sum((j+1)*y[j]) for j in range(k[1])))
-    Cost = solver.Sum((j+1)*y[j] for j in range(k[1]))
-    solver.setObjective(Cost,GRB.MINIMIZE)
-    
 
+    #Cost = solver.Sum((j+1)*y[j] for j in range(k[1]))
+    #solver.Minimize(Cost)
+    cost =0
+    for j in range(k[1]):
+        cost = cost+ (j+1)*y[j]
+    solver.setObjective(cost,GRB.MINIMIZE)
+    
     #constraints
     #CONSTRAINT 1: DEMAND FULFILLMENT
     for i in range(num_orders):  
         for j in range(k[1]):
-            solver.addConstrs(gp.Sum(x[i][j]) >= demands[i][0])
-       
+            solver.addConstr(gp.quicksum(x1[i][j]) >= demands[i][0])
+
+    #CONSTRAINT 2: MAX SIZE LIMIT
+    for j in range(k[1]):
+        for i in range(num_orders):
+            solver.addConstrs(gp.quicksum(demands[i][1]*x1[i][j] <= parent_width*y[j] )) 
+
+    solver.Add(parent_width*y[j] - sum(demands[i][1]*x[i][j] for i in range(num_orders)) == unused_widths[j])
+
+    if j < k[1]-1: 
+      solver.addConstr(gp.quicksum(x[i][j] for i in range(num_orders)) >= solver.addConstr(gp.quicksum(x[i][j+1] for i in range(num_orders))))
+
+    # find & assign to nb, the number of big rolls used
+    solver.addConstr(nb == solver.addConstr(gp.quicksum(y[j] for j in range(k[1]))))
+    status = solver.Solve()
+
+    return status
+
+
 # defining the bounds
 def bounds(demands, parent_width=120):
   num_orders = len(demands)
