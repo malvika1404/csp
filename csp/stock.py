@@ -34,6 +34,15 @@ def get_initial_patterns(demands):
    return [[0 if j != i else 1 for j in range(num_orders)]\
            for i in range(num_orders)]
 
+def SolVal(x):
+  if type(x) is not list:
+    return 0 if x is None \
+      else x if isinstance(x,(int,float)) \
+           else x.SolutionValue() if x.Integer() is False \
+                else int(x.SolutionValue())
+  elif type(x) is list:
+    return [SolVal(e) for e in x]
+
 def solve_model(demands, parent_width=120):
     num_orders = len(demands)
     solver = gp.Model()
@@ -71,6 +80,7 @@ def solve_model(demands, parent_width=120):
     #CONSTRAINT 2: MAX SIZE LIMIT
     for j in range(k[1]):
         for i in range(num_orders):
+            print('mult',i,j,demands[i][1]*x1[i][j] )
             solver.addConstrs(gp.quicksum(demands[i][1]*x1[i][j] <= parent_width*y[j] )) 
 
     solver.Add(parent_width*y[j] - sum(demands[i][1]*x[i][j] for i in range(num_orders)) == unused_widths[j])
@@ -81,8 +91,9 @@ def solve_model(demands, parent_width=120):
     # find & assign to nb, the number of big rolls used
     solver.addConstr(nb == solver.addConstr(gp.quicksum(y[j] for j in range(k[1]))))
     status = solver.Solve()
+    numRollsUsed = SolVal(nb)
 
-    return status
+    return status, numRollsUsed
 
 
 # defining the bounds
