@@ -1,24 +1,16 @@
-'''
-Steps:
-1. construct a model
-2. decision variables:
-    how many cuts of width w to make, given N orders and atmost K rolls
-3. Objective function: minimize rolls and minimize waste in turn minimize cost
-4. Constraints:
-    1. demand satisfaction
-    2. sum of consumer roll <= width of parent roll
-'''
-from gurobipy import GRB
+from gurobipy import *
 import gurobipy as gp
-import numpy as np
-np.random.seed(0)
-import math
-import typer
+from gurobipy import GRB
+import typer 
+import matplotlib as plt
 import time
 
-#user input of quantity and widths
+EPS = 1.e-6
+
+#manually enter data for testing
 def gen_data(num_orders):
     print('numorders',num_orders)
+    print("child_rolls: [quantity, width]")
     R=[] # small rolls
     for i in range(num_orders):
       if i == 0:
@@ -29,107 +21,6 @@ def gen_data(num_orders):
         R.append([7,26])
     return R
 
-def get_initial_patterns(demands):
-   num_orders = len(demands)
-   return [[0 if j != i else 1 for j in range(num_orders)]\
-           for i in range(num_orders)]
-
-def SolVal(x):
-  if type(x) is not list:
-    return 0 if x is None \
-      else x if isinstance(x,(int,float)) \
-           else x.SolutionValue() if x.Integer() is False \
-                else int(x.SolutionValue())
-  elif type(x) is list:
-    return [SolVal(e) for e in x]
-
-def solve_model(demands, parent_width=120):
-    num_orders = len(demands)
-    solver = gp.Model()
-    k,b  = bounds(demands, parent_width) 
-
-    #create variables  
-    y = [ i for i in range(k[1]) ] 
-    x = [ [i,j] for i in range(num_orders) for j in range(k[1]) ]
-    x1 = [x[i * 6:(i + 1) * 6] for i in range((len(x) + 6 - 1) // 6 )]
-   
-    # for i in range(k[1]):
-    #     y1=solver.addVar(y[i],obj=1,vtype=GRB.INTEGER, name='y') 
-    # x1= solver.addVar(0,x, vtype=GRB.INTEGER,name="x")   
-    solver.update()
-    nb = solver.addVar(k[0], k[1],vtype=GRB.INTEGER, name='nb')
-    for j in range(k[1]):
-        unused_widths = solver.addVar(0, parent_width,  name='unusedwidth' )
-    solver.update()
-
-    #objective: MINIMIZE COST
-
-    #Cost = solver.Sum((j+1)*y[j] for j in range(k[1]))
-    #solver.Minimize(Cost)
-    cost =0
-    for j in range(k[1]):
-        cost = cost+ (j+1)*y[j]
-    solver.setObjective(cost,GRB.MINIMIZE)
-    
-    #constraints
-    #CONSTRAINT 1: DEMAND FULFILLMENT
-    for i in range(num_orders):  
-        for j in range(k[1]):
-            solver.addConstr(gp.quicksum(x1[i][j]) >= demands[i][0])
-
-    #CONSTRAINT 2: MAX SIZE LIMIT
-    for j in range(k[1]):
-        for i in range(num_orders):
-            print('mult',i,j,demands[i][1]*x1[i][j] )
-            solver.addConstrs(gp.quicksum(demands[i][1]*x1[i][j] <= parent_width*y[j] )) 
-
-    solver.Add(parent_width*y[j] - sum(demands[i][1]*x[i][j] for i in range(num_orders)) == unused_widths[j])
-
-    if j < k[1]-1: 
-      solver.addConstr(gp.quicksum(x[i][j] for i in range(num_orders)) >= solver.addConstr(gp.quicksum(x[i][j+1] for i in range(num_orders))))
-
-    # find & assign to nb, the number of big rolls used
-    solver.addConstr(nb == solver.addConstr(gp.quicksum(y[j] for j in range(k[1]))))
-    status = solver.Solve()
-    numRollsUsed = SolVal(nb)
-
-    return status, numRollsUsed
-
-
-# defining the bounds
-def bounds(demands, parent_width=120):
-  num_orders = len(demands)
-  b = []
-  T = 0
-  k = [0,1]
-  TT = 0
-  for i in range(num_orders):
-    quantity, width = demands[i][0], demands[i][1]
-    b.append( int(round(parent_width / width)))
-    if T + quantity*width <= parent_width:
-      T, TT = T + quantity*width, TT + quantity*width
-    else:
-      while quantity:
-        if T + width <= parent_width:
-          T, TT, quantity = T + width, TT + width, quantity-1
-        else:
-          k[1],T = k[1]+1, 0 # use next roll (k[1] += 1)
-  k[0] = int(round(TT/parent_width+0.5))
-  print('k: minimum big-rolls required,number of big rolls that can be consumed', k)
-  print('b: sum of widths of individual small rolls (parent_width / width)', b)
-  return k, b
-
-
-#master problem
-# def master_problem():
-#     num_patterns = len(patterns)
-#     solver = gp.Model("master problem")
-
-
-#subproblem
-
-
-#check widths
 def checkWidths(demands, parent_width):
   sum=0
   for quantity, width in demands:
@@ -140,70 +31,114 @@ def checkWidths(demands, parent_width):
   print(f'Sum of Small rolls widths {sum} is lesser than parent rolls width {parent_width}. Check!')
   return True
 
-#define and call model
-def StockCutter1D(child_rolls, parent_rolls,large_model=True):
+# Column Generation method - 
+# small subset of the variables is used initially and sequentially adds more columns
+def cuttingStock(parent_rolls,child_rolls):
+    cut = []
     parent_width = parent_rolls[0][1]
-    print(child_rolls)
-    if not checkWidths(demands=child_rolls, parent_width=parent_width):
-        return []
-    print('child_rolls', child_rolls)
-    print('parent_rolls', parent_rolls)
-    if not large_model:
-        consumed_big_rolls = solve_model(demands=child_rolls, parent_width=parent_width)
-        status = solve_model(demands=child_rolls, parent_width=parent_width)
-        numRollsUsed = solve_model(demands=child_rolls, parent_width=parent_width)
-        new_consumed_big_rolls = []
-        print('cbr',consumed_big_rolls)
-        for big_roll in consumed_big_rolls:
-            print(big_roll)
-            if len(big_roll) < 2:
-                # sometimes the solve_model return a solution that contanis an extra [0.0] entry for big roll
-                consumed_big_rolls.remove(big_roll)
-                continue
-            unused_width = big_roll[0]
-            subrolls = []
-            for subitem in big_roll[1:]:
-                if isinstance(subitem, list):
-                # if it's a list, concatenate with the other lists, to make a single list for this big_roll
-                    subrolls = subrolls + subitem
-                else:
-                    # if it's an integer, add it to the list
-                    subrolls.append(subitem)
-            new_consumed_big_rolls.append([unused_width, subrolls])
-        consumed_big_rolls = new_consumed_big_rolls
-    numRollsUsed = len(consumed_big_rolls)
+    num_orders = len(child_rolls)
 
-    STATUS_NAME = ['OPTIMAL',
-        'FEASIBLE',
-        'INFEASIBLE',
-        'UNBOUNDED',
-        'ABNORMAL',
-        'NOT_SOLVED'
-        ]
+    q=[]
+    for i in range(num_orders):
+        q.append(child_rolls[i][0])
+    w=[]
+    for i in range(num_orders):
+        w.append(child_rolls[i][1])
 
-    output = {
-        "statusName": STATUS_NAME[status],
-        "numSolutions": '1',
-        "numUniqueSolutions": '1',
-        "numRollsUsed": numRollsUsed,
-        "solutions": consumed_big_rolls # unique solutions
-    }
-    print('numRollsUsed', numRollsUsed)
-    print('Status:', output['statusName'])
-    print('Solutions found :', output['numSolutions'])
-    print('Unique solutions: ', output['numUniqueSolutions'])
+#generate initial set of patterns
+    for i in range(num_orders):
+        pat = [0]*num_orders
+        pat[i] = int(parent_width/w[i])
+        cut.append(pat) 
+    print('initial patterns generated: ',cut)
+    rolls = solveMaster(cut,parent_width,w,q,num_orders)
+    print(rolls)
+    return cut,parent_width,w,q,num_orders
+
+#CSP Subproblem
+def solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders):
+    print("subproblem ")
+    iter =0
+    while 1:
+        iter += 1
+        relax = solver.relax()
+        relax.optimize()
+        pi = [rel.Pi for rel in relax.getConstrs()] # keep dual variables
+# Knapsack Subproblem
+        sub_solver = gp.Model("Subproblem_Knapsack")   # knapsack sub-problem
+        sub_solver.ModelSense=-1   # maximize
+        y = {}
+        for i in range(num_orders):
+            y[i] = sub_solver.addVar(obj=pi[i], ub=q[i], vtype=GRB.INTEGER, name="y[%d]"%i)
+        sub_solver.update()
+
+        lin = gp.LinExpr(w, [y[i] for i in range(num_orders)])
+        sub_solver.addConstr(lin, "<", parent_width, name="width")
+        sub_solver.setObjective(gp.quicksum(pi[i]*y[i] for i in range(num_orders)), GRB.MAXIMIZE)
+        sub_solver.update()
+        sub_solver.optimize()
+        if sub_solver.ObjVal < 1+EPS: # break if no more columns
+            break
+
+        pat = [int(y[i].X+0.5) for i in y]	
+        cut.append(pat)
+        print('Patterns',pat)
+        
+        # add new column to the master problem
+        col = gp.Column()
+        for i in range(num_orders):
+            if cut[K][i] > 0:
+                col.addTerms(cut[K][i], orders[i])
+        x[K] = solver.addVar(obj=1, vtype=GRB.INTEGER, name="x[%d]"%K, column=col)
+        solver.update()   
+        K += 1
+    solver.optimize()
+    rolls = []
+    waste =[]
+    for k in x:
+        for j in range(int(x[k].X + .5)):
+            rolls.append(sorted([w[i] for i in range(num_orders) if cut[k][i]>0 for j in range(cut[k][i])]))
+            waste.append(parent_width - sum(rolls[j]))
+    rolls.sort() 
+    print (len(rolls), "rolls:" )
+    print("[[Rolls][Waste]")
+    return rolls,waste
+    
+#CSP Master Problem
+def solveMaster(cut,parent_width,w,q,num_orders):
+    print("master problem")
+    K = len(cut)
+    solver = gp.Model("Cutting_Stock_Master_Problem") # master problem
+    x = {}
+    for k in range(K):
+        x[k] = solver.addVar(obj=1, vtype=GRB.INTEGER, name="x[%d]"%k)
+    solver.update()
+    orders={}
+    for i in range(num_orders):
+        coef = [cut[k][i] for k in range(K) if cut[k][i] > 0]
+        var = [x[k] for k in range(K) if cut[k][i] > 0]
+        orders[i] = solver.addConstr(gp.LinExpr(coef,var), ">", q[i], name="Order[%d]"%i)
+    solver.setObjective(gp.quicksum(x[k] for k in range(K)), GRB.MINIMIZE)
+    solver.update()
+    a = solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders)
+    return a
 
 def main():
-    start = time.time()
-    print(start)
+    start=time.time()
+    print ("\n\n\nCutting stock problem:")
     child_rolls = gen_data(3)
-    parent_rolls = [[10, 120]] # 10 doesn't matter, its not used at the moment
-    consumed_big_rolls = StockCutter1D(child_rolls, parent_rolls,large_model=False)
-    print(consumed_big_rolls)
-    typer.echo(f" [[Waste],[Consumed Big Rolls]]")
-    typer.echo(f"{consumed_big_rolls}")
+    parent_rolls = [[10, 120]]
+    print (child_rolls)
+    parent_width = parent_rolls[0][1]
+    print("parent width", parent_width)
+    if not checkWidths(demands=child_rolls, parent_width=parent_rolls[0][1]):
+        return []
+    cuttingStock(parent_rolls,child_rolls)
     end = time.time()
-    print(end - start)
+    print(end-start)
 
 if __name__ == "__main__":
-  typer.run(main)
+    typer.run(main) 
+    
+    
+   
