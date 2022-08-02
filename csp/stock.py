@@ -2,10 +2,21 @@ from gurobipy import *
 import gurobipy as gp
 from gurobipy import GRB
 import typer 
-import matplotlib as plt
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import time
 
 EPS = 1.e-6
+
+# Randomly generate input data
+
+# def gen_data(num_orders):
+#     print('numorders',num_orders)
+#     print("child_rolls: [quantity, width]")
+#     R=[] # small rolls
+#     for i in range(num_orders):
+#       R.append([randint(20,100), randint(5,80)])
+#     return R
 
 #manually enter data for testing
 def gen_data(num_orders):
@@ -51,12 +62,12 @@ def cuttingStock(parent_rolls,child_rolls):
         pat[i] = int(parent_width/w[i])
         cut.append(pat) 
     print('initial patterns generated: ',cut)
-    rolls = solveMaster(cut,parent_width,w,q,num_orders)
-    print(rolls)
+    rolls = solveMaster(cut,parent_width,w,q,num_orders, child_rolls)
+    print('rolls',rolls)
     return cut,parent_width,w,q,num_orders
 
 #CSP Subproblem
-def solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders):
+def solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders, child_rolls):
     print("subproblem ")
     iter =0
     while 1:
@@ -90,22 +101,24 @@ def solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders):
             if cut[K][i] > 0:
                 col.addTerms(cut[K][i], orders[i])
         x[K] = solver.addVar(obj=1, vtype=GRB.INTEGER, name="x[%d]"%K, column=col)
-        solver.update()   
+        solver.update() 
         K += 1
     solver.optimize()
     rolls = []
     waste =[]
     for k in x:
-        for j in range(int(x[k].X + .5)):
+        for j in range(int(x[k].X + 0.5)):
             rolls.append(sorted([w[i] for i in range(num_orders) if cut[k][i]>0 for j in range(cut[k][i])]))
             waste.append(parent_width - sum(rolls[j]))
     rolls.sort() 
     print (len(rolls), "rolls:" )
-    print("[[Rolls][Waste]")
-    return rolls,waste
+    print("[[Rolls][Waste]", rolls, waste)
+    end = time.time()
+    print(end)
+    # drawGraph(rolls, waste,child_rolls, parent_width)
     
 #CSP Master Problem
-def solveMaster(cut,parent_width,w,q,num_orders):
+def solveMaster(cut,parent_width,w,q,num_orders, child_rolls):
     print("master problem")
     K = len(cut)
     solver = gp.Model("Cutting_Stock_Master_Problem") # master problem
@@ -120,11 +133,52 @@ def solveMaster(cut,parent_width,w,q,num_orders):
         orders[i] = solver.addConstr(gp.LinExpr(coef,var), ">", q[i], name="Order[%d]"%i)
     solver.setObjective(gp.quicksum(x[k] for k in range(K)), GRB.MINIMIZE)
     solver.update()
-    a = solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders)
+    a = solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders, child_rolls)
     return a
+
+def drawGraph(rolls, waste,child_rolls, parent_width ):
+  xSize = parent_width
+  ySize = 10 * len(rolls)
+  fig,ax = plt.subplots(1)
+  plt.xlim(0, xSize)
+  plt.ylim(0, ySize)
+  plt.gca().set_aspect('equal', adjustable='box')
+    
+  # print coords
+  coords = []
+  colors = ['r', 'g', 'b', 'y', 'brown', 'violet', 'pink', 'gray', 'orange','b','y']
+  colorDict = {}
+  i = 0
+  for quantity, width in child_rolls:
+    colorDict[width] = colors[i % 11]
+    print(colorDict)
+    i+= 1
+  y1 = 0
+  for i, roll in enumerate(rolls):
+    unused = waste
+    small_roll = roll
+    x1=0
+    x2 = 0
+    y2 = y1 + 8
+    for j, small_roll in enumerate(small_roll):
+      x2 = x2 + small_roll
+      width = abs(x1-x2)
+      height = abs(y1-y2)
+      rect_shape = patches.Rectangle((x1,y1), width, height, facecolor=colorDict[small_roll], label=f'{small_roll}')
+      ax.add_patch(rect_shape)
+      x1 = x2
+    # if len(unused) > 0:
+    #   width = unused
+    #   rect_shape = patches.Rectangle((x1,y1), width, height, facecolor='black', label='Unused')
+    #   ax.add_patch(rect_shape)
+    y1 += 10
+
+  plt.show()
+
 
 def main():
     start=time.time()
+    print(start)
     print ("\n\n\nCutting stock problem:")
     child_rolls = gen_data(3)
     parent_rolls = [[10, 120]]
@@ -134,9 +188,7 @@ def main():
     if not checkWidths(demands=child_rolls, parent_width=parent_rolls[0][1]):
         return []
     cuttingStock(parent_rolls,child_rolls)
-    end = time.time()
-    print(end-start)
-
+  
 if __name__ == "__main__":
     typer.run(main) 
     
