@@ -62,8 +62,7 @@ def cuttingStock(parent_rolls,child_rolls):
         pat[i] = int(parent_width/w[i])
         cut.append(pat) 
     print('initial patterns generated: ',cut)
-    rolls = solveMaster(cut,parent_width,w,q,num_orders, child_rolls)
-    print('rolls',rolls)
+    solveMaster(cut,parent_width,w,q,num_orders, child_rolls)
     return cut,parent_width,w,q,num_orders
 
 #CSP Subproblem
@@ -115,7 +114,7 @@ def solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders, child_rol
     print("[[Rolls][Waste]", rolls, waste)
     end = time.time()
     print(end)
-    # drawGraph(rolls, waste,child_rolls, parent_width)
+    drawGraph(rolls, waste,child_rolls, parent_width)
     
 #CSP Master Problem
 def solveMaster(cut,parent_width,w,q,num_orders, child_rolls):
