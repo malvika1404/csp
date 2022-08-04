@@ -28,7 +28,7 @@ def gen_data(num_orders):
       if i == 0:
         R.append([12,25])
       elif i == 1:
-        R.append([14,22])
+        R.append([14,21])
       else:
         R.append([2,10])
     return R
@@ -163,7 +163,7 @@ def drawGraph(rolls, waste,child_rolls, parent_width ):
   labels = list(colorDict.keys())
   handles=[plt.Rectangle((0,0),1,1, color=colorDict[label]) for label in labels]
   #add legend outside box
-  l1=plt.legend(handles, labels, bbox_to_anchor =(0.85, 1.30))
+  l1=plt.legend(handles, labels, loc="upper right")
   black_patch = mpatches.Patch(color='black', label='Waste')
   l2=plt.legend(handles=[black_patch],bbox_to_anchor =(0.85, 1.0))
   #add more than one legend on plot
