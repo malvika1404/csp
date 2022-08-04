@@ -25,11 +25,11 @@ def gen_data(num_orders):
     R=[] # small rolls
     for i in range(num_orders):
       if i == 0:
-        R.append([6,25])
+        R.append([12,25])
       elif i == 1:
-        R.append([12,21])
+        R.append([4,20])
       else:
-        R.append([7,26])
+        R.append([2,10])
     return R
 
 def checkWidths(demands, parent_width):
@@ -109,10 +109,11 @@ def solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders, child_rol
         for j in range(int(x[k].X + 0.5)):
             rolls.append(sorted([w[i] for i in range(num_orders) if cut[k][i]>0 for j in range(cut[k][i])]))
             waste.append(parent_width - sum(rolls[j]))
-    rolls.sort() 
     print (len(rolls), "rolls:" )
-    print("[[Rolls][Waste]", rolls, waste)
-    end = time.time()
+    print("[[Rolls]][Waste]", rolls,waste)
+    for i in range(len(rolls)):
+      print("Roll:",i+1, rolls[i])
+    end = time.localtime()
     print(end)
     drawGraph(rolls, waste,child_rolls, parent_width)
     
@@ -145,7 +146,7 @@ def drawGraph(rolls, waste,child_rolls, parent_width ):
     
   # print coords
   coords = []
-  colors = ['r', 'g', 'b', 'y', 'brown', 'violet', 'pink', 'gray', 'orange','b','y']
+  colors = ['red', 'green', 'blue', 'yellow', 'brown', 'violet', 'pink', 'gray', 'orange','b','y']
   colorDict = {}
   i = 0
   for quantity, width in child_rolls:
@@ -176,7 +177,7 @@ def drawGraph(rolls, waste,child_rolls, parent_width ):
 
 
 def main():
-    start=time.time()
+    start=time.localtime()
     print(start)
     print ("\n\n\nCutting stock problem:")
     child_rolls = gen_data(3)
