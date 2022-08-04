@@ -1,7 +1,6 @@
 '''
 Original Author: Serge Kruk
 Original Version: https://github.com/sgkruk/Apress-AI/blob/master/cutting_stock.py
-
 Updated by: Emad Ehsan
 '''
 from ortools.linear_solver import pywraplp
@@ -12,19 +11,12 @@ from read_lengths import get_data
 import typer
 from typing import Optional
 import time
-from gurobipy import GRB
 
 def newSolver(name,integer=False):
   return pywraplp.Solver(name,\
-                        pywraplp.Solver.CBC_MIXED_INTEGER_PROGRAMMING \
+                         pywraplp.Solver.CBC_MIXED_INTEGER_PROGRAMMING \
                          if integer else \
                          pywraplp.Solver.GLOP_LINEAR_PROGRAMMING)
-
-                
-  # return pywraplp.Solver(name,\
-  #                       pywraplp.Solver.GUROBI_MIXED_INTEGER_PROGRAMMING \
-  #                       if integer else \
-  #                       pywraplp.Solver.GUROBI_LINEAR_PROGRAMMING)
 
 '''
 return a printable value
@@ -56,14 +48,14 @@ def gen_data(num_orders):
     R=[] # small rolls
     for i in range(num_orders):
       if i == 0:
-        R.append([10,20])
+        R.append([20,25])
       elif i == 1:
-        R.append([75,90])
+        R.append([40,21])
       else:
-        R.append([60,7])
+        R.append([10,26])
     return R
 
-def solve_model(demands, parent_width=120):
+def solve_model(demands, parent_width=100):
   '''
       demands = [
           [1, 3], # [quantity, width]
@@ -74,9 +66,7 @@ def solve_model(demands, parent_width=120):
   '''
   num_orders = len(demands)
   solver = newSolver('Cutting Stock', True)
-  #call a routine bounds to find lower and upper bounds
-  #on the numbers of rolls we will require and on the number of rolls of each order that can fit in a roll
-  k,b  = bounds(demands, parent_width)  
+  k,b  = bounds(demands, parent_width)
 
   # array of boolean declared as int, if y[i] is 1, 
   # then y[i] Big roll is used, else it was not used
@@ -86,18 +76,17 @@ def solve_model(demands, parent_width=120):
   # must be cut from j-th order, 3 tmies 
   x = [[solver.IntVar(0, b[i], f'x_{i}_{j}') for j in range(k[1])] \
       for i in range(num_orders)]
- 
+  
   unused_widths = [ solver.NumVar(0, parent_width, f'w_{j}') \
       for j in range(k[1]) ] 
   
   # will contain the number of big rolls used
   nb = solver.IntVar(k[0], k[1], 'nb')
 
-  # constraint: demand fullfilment: summing over all rolls the elements of a given order
+  # consntraint: demand fullfilment
   for i in range(num_orders):  
     # small rolls from i-th order must be at least as many in quantity
     # as specified by the i-th order
-    # cut more than the customer demanded and then store these rolls in inventory
     solver.Add(sum(x[i][j] for j in range(k[1])) >= demands[i][0]) 
 
   # constraint: max size limit
@@ -109,10 +98,11 @@ def solve_model(demands, parent_width=120):
         <= parent_width*y[j] \
       ) 
 
-    # width of j-th big roll - total width of all orders cut from j-th roll    # must be equal to unused_widths[j]
+    # width of j-th big roll - total width of all orders cut from j-th roll
+    # must be equal to unused_widths[j]
     # So, we are saying that assign unused_widths[j] the remaining width of j'th big roll
     solver.Add(parent_width*y[j] - sum(demands[i][1]*x[i][j] for i in range(num_orders)) == unused_widths[j])
-
+    
     '''
     With this constraint, we tell the solver to prefer those permutations 
     with more cuts in roll j than in roll j + 1. 
@@ -169,7 +159,7 @@ def bounds(demands, parent_width=120):
     # assumes widths to be entered as percentage
     # int(round(parent_width/demands[i][1])) will always be >= 1, because widths of small rolls can't exceed parent_width (which is width of big roll)
     # b.append( min(demands[i][0], int(round(parent_width / demands[i][1]))) )
-    b.append( int(round(parent_width / width)))
+    b.append( min(quantity, int(round(parent_width / width))) )
 
     # if total width of this i-th order + previous order's leftover (T) is less than parent_width
     # it's fine. Cut it.
@@ -451,7 +441,6 @@ def drawGraph(consumed_big_rolls, child_rolls, parent_width):
     i = 0
     for quantity, width in child_rolls:
       colorDict[width] = colors[i % 11]
-      print(colorDict)
       i+= 1
 
     # start plotting each big roll horizontly, from the bottom
@@ -497,8 +486,9 @@ if __name__ == '__main__':
 
 
   def main(infile_name: Optional[str] = typer.Argument(None)):
-    start = time.time()
-    print(start)
+    start=time.localtime()
+    
+    print("time:start",start)
     if infile_name:
       child_rolls = get_data(infile_name)
     else:
@@ -508,8 +498,9 @@ if __name__ == '__main__':
     print(len(consumed_big_rolls))
     typer.echo(f" [[Waste],[Consumed Big Rolls]]")
     typer.echo(f"{consumed_big_rolls}")
-    end = time.time()
-    print(end - start)
+    end = time.localtime()
+    print(end)
+    
     for idx, roll in enumerate(consumed_big_rolls):
       typer.echo(f"Roll #{idx}:{roll}")
     drawGraph(consumed_big_rolls, child_rolls, parent_width=parent_rolls[0][1])
