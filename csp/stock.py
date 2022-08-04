@@ -4,6 +4,7 @@ from gurobipy import GRB
 import typer 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.patches as mpatches
 import time
 
 EPS = 1.e-6
@@ -18,7 +19,7 @@ EPS = 1.e-6
 #       R.append([randint(20,100), randint(5,80)])
 #     return R
 
-#manually enter data for testing
+# manually enter data for testing
 def gen_data(num_orders):
     print('numorders',num_orders)
     print("child_rolls: [quantity, width]")
@@ -27,7 +28,7 @@ def gen_data(num_orders):
       if i == 0:
         R.append([12,25])
       elif i == 1:
-        R.append([4,20])
+        R.append([14,22])
       else:
         R.append([2,10])
     return R
@@ -71,9 +72,10 @@ def solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders, child_rol
     iter =0
     while 1:
         iter += 1
+        #Transform integer variables into continuous variables
         relax = solver.relax()
         relax.optimize()
-        pi = [rel.Pi for rel in relax.getConstrs()] # keep dual variables
+        pi = [rel.Pi for rel in relax.getConstrs()] 
 # Knapsack Subproblem
         sub_solver = gp.Model("Subproblem_Knapsack")   # knapsack sub-problem
         sub_solver.ModelSense=-1   # maximize
@@ -89,7 +91,6 @@ def solveSubProblem(solver,x,orders,K,cut,parent_width,w,q,num_orders, child_rol
         sub_solver.optimize()
         if sub_solver.ObjVal < 1+EPS: # break if no more columns
             break
-
         pat = [int(y[i].X+0.5) for i in y]	
         cut.append(pat)
         print('Patterns',pat)
@@ -140,20 +141,35 @@ def drawGraph(rolls, waste,child_rolls, parent_width ):
   xSize = parent_width
   ySize = 10 * len(rolls)
   fig,ax = plt.subplots(1)
+ 
   plt.xlim(0, xSize)
   plt.ylim(0, ySize)
   plt.gca().set_aspect('equal', adjustable='box')
     
-  # print coords
+  # print coordinates
   coords = []
   colors = ['red', 'green', 'blue', 'yellow', 'brown', 'violet', 'pink', 'gray', 'orange','b','y']
   colorDict = {}
+  waste_color=['black']
+  wasteDict={}
   i = 0
   for quantity, width in child_rolls:
     colorDict[width] = colors[i % 11]
     print(colorDict)
     i+= 1
+  for i in waste:
+    wasteDict[i]=waste_color
   y1 = 0
+  labels = list(colorDict.keys())
+  handles=[plt.Rectangle((0,0),1,1, color=colorDict[label]) for label in labels]
+  #add legend outside box
+  l1=plt.legend(handles, labels, bbox_to_anchor =(0.85, 1.30))
+  black_patch = mpatches.Patch(color='black', label='Waste')
+  l2=plt.legend(handles=[black_patch],bbox_to_anchor =(0.85, 1.0))
+  #add more than one legend on plot
+  ax.add_artist(l1)
+  ax.add_artist(l2)
+  
   for i, roll in enumerate(rolls):
     unused = waste
     small_roll = roll
@@ -164,15 +180,16 @@ def drawGraph(rolls, waste,child_rolls, parent_width ):
       x2 = x2 + small_roll
       width = abs(x1-x2)
       height = abs(y1-y2)
+      ax.set_facecolor('xkcd:light gray')
       rect_shape = patches.Rectangle((x1,y1), width, height, facecolor=colorDict[small_roll], label=f'{small_roll}')
       ax.add_patch(rect_shape)
-      x1 = x2
-    # if len(unused) > 0:
-    #   width = unused
-    #   rect_shape = patches.Rectangle((x1,y1), width, height, facecolor='black', label='Unused')
-    #   ax.add_patch(rect_shape)
-    y1 += 10
-
+      x1 = x2  
+    if len(unused) > 0:
+      for i in range(len(unused)):
+        width = unused[i]
+        rect_shape = patches.Rectangle((x1,y1), width, height, facecolor='black', label='Unused')  
+        ax.add_patch(rect_shape)
+    y1 += 10 
   plt.show()
 
 
@@ -184,7 +201,7 @@ def main():
     parent_rolls = [[10, 120]]
     print (child_rolls)
     parent_width = parent_rolls[0][1]
-    print("parent width", parent_width)
+    print("Parent Width", parent_width)
     if not checkWidths(demands=child_rolls, parent_width=parent_rolls[0][1]):
         return []
     cuttingStock(parent_rolls,child_rolls)
